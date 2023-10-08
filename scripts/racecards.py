@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 import os
+import time
+
 import requests
+from selenium import webdriver
+from selenium.webdriver.firefox.service import Service
+from webdriver_manager.firefox import GeckoDriverManager
+from selenium.webdriver.common.by import By
 import sys
 
 from collections import defaultdict
@@ -270,7 +276,7 @@ def parse_races(session, race_urls, date):
     races = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
 
     going_info = get_going_info(session, date)
-
+    browser = webdriver.Firefox(service=Service(GeckoDriverManager().install()))
     for url in race_urls:
         r = session.get(url, headers=random_header.header(), allow_redirects=False)
 
@@ -286,7 +292,8 @@ def parse_races(session, race_urls, date):
             continue
 
         race = {}
-
+        horse_prices = get_horse_prices(browser, url)
+        race['prices'] = horse_prices
         url_split = url.split('/')
 
         race['course'] = find(doc, 'h1', 'RC-courseHeader__name')
@@ -367,6 +374,7 @@ def parse_races(session, race_urls, date):
                 runners[horse_id]['sire'] = clean_name(sire[0])
                 runners[horse_id]['dam'] = clean_name(dam[0])
                 runners[horse_id]['damsire'] = clean_name(damsire[0])
+                runners[horse_id]['dec'] = horse_prices[1]
 
                 runners[horse_id]['sire_region'] = sire[1].replace(')', '').strip()
                 runners[horse_id]['dam_region'] = dam[1].replace(')', '').strip()
@@ -444,7 +452,49 @@ def valid_course(course):
     invalid = ['free to air', 'worldwide stakes', '(arab)']
     return all([x not in course for x in invalid])
 
+def get_horse_prices(browser, url):
+    horse_prices = {}
+    browser.get(url)
+    time.sleep(3)
+    browser.execute_script(
+        "document.getElementsByClassName('RC-bookieSelection__popOverBookies__bookie "
+        "js-RC-bookieSelection__popOverBookies__bookie js-RC-bookieSelection__bookieIcon_betfair "
+        "RC-bookieSelection__bookieIcon_betfair')[0].click()"
+    )
+    time.sleep(2.2)
+    runners = browser.find_elements(By.CLASS_NAME, 'RC-runnerRow')
 
+    for runner in runners:
+        price = runner.find_element(By.CLASS_NAME, 'RC-runnerPrice')
+        number = runner.find_element(By.CLASS_NAME, 'RC-runnerNumber')
+        name = runner.find_element(By.CLASS_NAME, 'RC-runnerName ')
+
+        if 'NR' in number.text:
+            horse_prices[name.text] = 'xxx'
+            continue
+
+        if 'Evs' in price.text:
+            horse_prices[name.text] = 'xxx'
+            continue
+
+        if '-' in price.text:
+            horse_prices[name.text] = 'xxx'
+            continue
+
+        if 'SP' in price.text:
+            horse_prices[name.text] = 'xxx'
+            continue
+
+        if price.text == '':
+            horse_prices[name.text] = 'xxx'
+            continue
+
+        price = price.text.split('/')
+        price = int(price[0]) / int(price[1]) + 1
+
+        horse_prices[name.text] = price
+
+    return horse_prices
 def main():
     if len(sys.argv) != 2 or sys.argv[1].lower() not in {'today', 'tomorrow'}:
         return print('Usage: ./racecards.py [today|tomorrow]')
